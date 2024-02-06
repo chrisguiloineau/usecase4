@@ -1,0 +1,92 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mariadb-2
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mariadb-secret
+  namespace: mariadb-2
+
+type: Opaque
+stringData:
+  MYSQL_ROOT_PASSWORD: synapse_pwd
+---
+# a exécuté à part, doit faire parti de la Kustomization pour récupérer le fichier local
+# kubectl create configmap somename --from-file=./conf/nginx.conf
+# pas d'utilisation de volume dans ce cas
+---
+apiVersion: mariadb.mmontes.io/v1alpha1
+kind: MariaDB
+metadata:
+  name: mariadb
+  namespace: mariadb-2
+spec:
+  rootPasswordSecretKeyRef:
+    name: mariadb-secret
+    key: MYSQL_ROOT_PASSWOR
+
+  image:
+    repository: mariadb
+    tag: "11.2"
+    pullPolicy: IfNotPresent
+
+  port: 3306
+
+  replicas: 2
+
+  volumeClaimTemplate:
+    resources:
+      requests:
+        storage: 1Gi
+    accessModes:
+      - ReadWriteOnce
+
+  service:
+    type: LoadBalancer
+
+  primaryService:
+    type: LoadBalancer
+
+  secondaryService:
+    type: LoadBalancer
+
+  metrics:
+    enabled: true
+    exporter:
+      image: prom/mysqld-exporter:v0.10.0
+      resources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+        limits:
+          cpu: 300m
+          memory: 512Mi
+      port: 9104
+    serviceMonitor:
+      prometheusRelease: kube-prometheus-stack
+      jobLabel: mariadb-monitoring
+      interval: 10s
+      scrapeTimeout: 10s
+    username: root
+    passwordSecretKeyRef:
+      name: mariadb-secret
+      key: MYSQL_ROOT_PASSWORD
+---
+apiVersion: mariadb.mmontes.io/v1alpha1
+kind: SqlJob
+metadata:
+  name: mariadb-init
+  namespace: mariadb-2
+spec:
+  mariaDbRef:
+    name: mariadb
+  username: root
+  passwordSecretKeyRef:
+    name: mariadb-secret
+    key: MYSQL_ROOT_PASSWORD
+  sqlConfigMapKeyRef:valueFrom:
+    configMapKeyRef:
+      name: cm-maria-init
+      key: sql

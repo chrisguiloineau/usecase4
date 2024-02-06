@@ -1,0 +1,112 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mariadb-1
+---
+
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mariadb-secret
+  namespace: mariadb-1
+
+type: Opaque
+stringData:
+  MYSQL_ROOT_PASSWORD: synapse_pwd
+  MYSQL_USER: data_usr 
+  MYSQL_USER_PASSWORD: data_pwd
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mariadb-statefulset
+  namespace: mariadb-1
+spec:
+  replicas: 2
+  serviceName: mariadb
+
+  selector:
+    matchLabels:
+      app: mariadb
+  template:
+    metadata:
+      labels:
+        app: mariadb
+    spec:
+      containers:
+      - name: mariadb
+        image: mariadb:11.2
+        env:
+        - name: MYSQL_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mariadb-secret
+              key: MYSQL_ROOT_PASSWORD
+
+        - name: MYSQL_USER_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mariadb-secret
+              key: MYSQL_USER_PASSWORD
+
+        - name: MYSQL_USER
+          valueFrom:
+            secretKeyRef:
+              name: mariadb-secret
+              key: MYSQL_USER
+
+        - name: MYSQL_DATABASE
+          value: synapsedb
+
+        ports:
+        - containerPort: 3306
+        volumeMounts:
+        - name: init-db
+          mountPath: /docker-entrypoint-initdb.d
+        - name: data
+          mountPath: /var/lib/mysql
+
+      - name: mysql-exporter
+        image: prom/mysqld-exporter:v0.10.0
+
+        ports:
+          - name: tpc
+            protocol: TCP
+            containerPort: 9104
+        command: 
+          - sh 
+          - -c 
+          - DATA_SOURCE_NAME="root:synapse_pwd@(mariadb.mariadb:3306)/" /bin/mysqld_exporter 
+
+        env:
+          - name: DATA_SOURCE_NAME
+            value: "root:synapse_pwd@(mariadb.mariadb-statefulset-0.mariadb:3306)/"
+      volumes:
+      - name: init-db
+        hostPath:
+          path: /tmp/synapse
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      storageClassName: standard
+      accessModes:
+        - ReadWriteOnce
+      resources:
+        requests:
+          storage: 1Gi
+  
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mariadb-service
+  namespace: mariadb-1
+spec:
+  selector:
+    app: mariadb
+  ports:
+    - name: tcp
+      protocol: TCP
+      port: 3306
+  type: LoadBalancer
