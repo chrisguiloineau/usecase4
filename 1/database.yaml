@@ -3,7 +3,6 @@ kind: Namespace
 metadata:
   name: mariadb-1
 ---
-
 apiVersion: v1
 kind: Secret
 metadata:
@@ -109,4 +108,18 @@ spec:
     - name: tcp
       protocol: TCP
       port: 3306
+  type: LoadBalancer
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysqld-service
+  namespace: mariadb-1
+spec:
+  selector:
+    app: mariadb
+  ports:
+    - name: tcp
+      protocol: TCP
+      port: 9104
   type: LoadBalancer
